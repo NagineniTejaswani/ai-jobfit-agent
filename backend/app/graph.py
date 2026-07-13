@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from app.db import AgentRun, get_session, init_db
 
 load_dotenv()
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+client = Groq(api_key=os.getenv("GROQ_API_KEY", "missing-key"))
 
 MY_RESUME = """
 Software Development Engineer with 1+ year experience in Python/FastAPI backend,
