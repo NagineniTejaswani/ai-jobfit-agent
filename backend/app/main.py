@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from app.graph import run_agent
 from app.db import init_db, get_session, AgentRun
 import json
@@ -11,6 +11,21 @@ init_db()  # creates the .db file and table on startup if they don't exist
 
 class AnalyzeRequest(BaseModel):
     message: str
+    resume: str
+
+    @field_validator("message")
+    @classmethod
+    def message_not_empty(cls, v):
+        if not v or len(v.strip()) < 5:
+            raise ValueError("Message must be at least 5 characters")
+        return v
+
+    @field_validator("resume")
+    @classmethod
+    def resume_not_empty(cls, v):
+        if not v or len(v.strip()) < 50:
+            raise ValueError("Resume seems too short — please paste your full resume text")
+        return v
 
 
 @app.get("/")
@@ -20,7 +35,7 @@ def health_check():
 
 @app.post("/analyze")
 def analyze(request: AnalyzeRequest):
-    result = run_agent(request.message)
+    result = run_agent(request.message, request.resume)
     return result
 
 

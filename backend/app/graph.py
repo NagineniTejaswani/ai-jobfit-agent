@@ -12,12 +12,6 @@ from app.db import AgentRun, get_session, init_db
 load_dotenv()
 client = Groq(api_key=os.getenv("GROQ_API_KEY", "missing-key"))
 
-MY_RESUME = """
-Software Development Engineer with 1+ year experience in Python/FastAPI backend,
-GenAI/LLM applications, RAG pipelines, ChromaDB, LangChain, prompt engineering,
-REST APIs, React.js, MongoDB, JWT auth, Docker.
-"""
-
 tools_schema = [
     {
         "type": "function",
@@ -80,12 +74,12 @@ def call_llm_with_retry(messages, max_retries=3):
         except BadRequestError as e:
             if "tool_use_failed" in str(e) and attempt < max_retries:
                 wait_time = (attempt + 1) * 1.5
-                print(f"⚠️ Tool call formatting failed, retrying ({attempt + 1}/{max_retries}) after {wait_time}s...")
+                print(f"Tool call formatting failed, retrying ({attempt + 1}/{max_retries}) after {wait_time}s...")
                 time.sleep(wait_time)
                 continue
             raise
 
-def critic_check(verdict: JobFitVerdict) -> tuple[bool, str]:
+def critic_check(verdict: JobFitVerdict, resume: str) -> tuple[bool, str]:
     """A second, independent LLM call that judges the verdict against a concrete rubric."""
     critique_prompt = f"""
     Evaluate this job-fit verdict against these criteria. Check each one:
@@ -99,7 +93,7 @@ def critic_check(verdict: JobFitVerdict) -> tuple[bool, str]:
     3. Does the reasoning explicitly name at least 2 specific skills (not vague phrases like "strong foundation")?
     4. Is fit_score between 0-100 and roughly consistent with the number of matching vs missing skills?
 
-    Resume: {MY_RESUME}
+    Resume: {resume}
     Verdict: {verdict.model_dump_json()}
 
     Check all 4 criteria. Reply with exactly:
@@ -114,7 +108,7 @@ def critic_check(verdict: JobFitVerdict) -> tuple[bool, str]:
     approved = text.strip().upper().startswith("APPROVE")
     return approved, text
 
-def run_agent(user_message: str, max_iterations: int = 6):
+def run_agent(user_message: str, resume: str, max_iterations: int = 6):
     step_log = []  # ← NEW: collects everything that happens this run
 
     if not user_message or len(user_message.strip()) < 5:
@@ -122,7 +116,7 @@ def run_agent(user_message: str, max_iterations: int = 6):
         _save_run(user_message, result, step_log, 0)
         return result
 
-    system_prompt = f"""My resume:\n{MY_RESUME}
+    system_prompt = f"""My resume:\n{resume}
 
 You are a job-fit assistant. ONLY handle requests related to job search and fit assessment.
 If the user's message is unrelated to jobs/career (e.g. random text, unrelated topics),
@@ -178,7 +172,7 @@ Otherwise, use tools to search jobs, get details, then call submit_verdict with 
 
                 last_verdict = verdict
                 print(f"Verdict received, sending to Critic...")
-                approved, critique = critic_check(verdict)
+                approved, critique = critic_check(verdict, resume)
                 print(f"Critic says: {critique}")
                 step_log.append({
                     "step": step + 1, "event": "verdict_submitted",
@@ -231,7 +225,3 @@ def _save_run(user_message: str, result: dict, step_log: list, iterations_used: 
         session.close()
 
 
-# if __name__ == "__main__":
-#     result = run_agent("Find me 1 remote backend engineer job and assess my fit for it")
-#     print("\n\n=== FINAL RESULT ===")
-#     print(result)
