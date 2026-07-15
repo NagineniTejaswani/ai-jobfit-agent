@@ -14,17 +14,21 @@ def test_health_check():
 
 
 def test_analyze_rejects_empty_message():
-    """An empty message should be rejected before any LLM call happens."""
-    response = client.post("/analyze", json={"message": ""})
-    assert response.status_code == 200
-    assert response.json()["status"] == "invalid_input"
+    """An empty message should be rejected by Pydantic validation before reaching the agent."""
+    response = client.post("/analyze", json={"message": "", "resume": "Valid resume text " * 5})
+    assert response.status_code == 422
 
 
 def test_analyze_rejects_too_short_message():
-    """A message under 5 characters should be rejected."""
-    response = client.post("/analyze", json={"message": "hi"})
-    assert response.status_code == 200
-    assert response.json()["status"] == "invalid_input"
+    """A message under 5 characters should be rejected by Pydantic validation."""
+    response = client.post("/analyze", json={"message": "hi", "resume": "Valid resume text " * 5})
+    assert response.status_code == 422
+
+
+def test_analyze_rejects_short_resume():
+    """A resume under 50 characters should be rejected by Pydantic validation."""
+    response = client.post("/analyze", json={"message": "Find me a backend job", "resume": "short"})
+    assert response.status_code == 422
 
 
 def test_analyze_missing_field_returns_422():

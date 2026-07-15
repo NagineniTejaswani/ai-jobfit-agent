@@ -1,10 +1,21 @@
 from fastapi import FastAPI
 from pydantic import BaseModel, field_validator
-from app.graph import run_agent
+from app.graph import run_agent, run_agent_stream
 from app.db import init_db, get_session, AgentRun
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 import json
+from app.agent_graph import run_agent_langgraph, run_agent_langgraph_stream
+
 
 app = FastAPI(title="AI Job-Fit Analyzer")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # your Vite dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 init_db()  # creates the .db file and table on startup if they don't exist
 
@@ -33,11 +44,18 @@ def health_check():
     return {"status": "ok", "message": "AI Job-Fit Analyzer is running"}
 
 
+
 @app.post("/analyze")
 def analyze(request: AnalyzeRequest):
-    result = run_agent(request.message, request.resume)
+    result = run_agent_langgraph(request.message, request.resume)
     return result
 
+@app.post("/analyze-stream")
+def analyze_stream(request: AnalyzeRequest):
+    def event_generator():
+        for event in run_agent_langgraph_stream(request.message, request.resume):
+            yield f"data: {json.dumps(event)}\n\n"
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/history")
 def get_history(limit: int = 10):
@@ -58,3 +76,6 @@ def get_history(limit: int = 10):
         ]
     finally:
         session.close()
+
+
+

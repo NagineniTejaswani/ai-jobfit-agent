@@ -203,7 +203,84 @@ Otherwise, use tools to search jobs, get details, then call submit_verdict with 
 
     _save_run(user_message, result, step_log, max_iterations)
     return result
+def run_agent_stream(user_message: str, resume: str, max_iterations: int = 6):
+    """Generator version — yields live progress events, then a final result event."""
+    if not user_message or len(user_message.strip()) < 5:
+        yield {"type": "final", "result": {"status": "invalid_input", "message": "Please enter a real request."}}
+        return
 
+    system_prompt = f"""My resume:\n{resume}
+
+You are a job-fit assistant. ONLY handle requests related to job search and fit assessment.
+If unrelated, do NOT call any tools — reply with plain text explaining you can only help with job search.
+
+When submitting your verdict, fit_score MUST be a number from 0 to 100.
+
+Otherwise, use tools to search jobs, get details, then call submit_verdict."""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message}
+    ]
+
+    last_verdict = None
+    step_log = []
+
+    for step in range(max_iterations):
+        try:
+            response = call_llm_with_retry(messages)
+        except BadRequestError as e:
+            step_log.append({"event": "llm_call_failed", "detail": str(e)})
+            result = {"status": "low_confidence", "verdict": last_verdict.model_dump() if last_verdict else None} \
+                if last_verdict else {"status": "failed", "message": "LLM provider error."}
+            _save_run(user_message, result, step_log, step + 1)
+            yield {"type": "final", "result": result}
+            return
+
+        reply = response.choices[0].message
+        messages.append(reply)
+
+        if not reply.tool_calls:
+            result = {"status": "no_action", "message": reply.content}
+            _save_run(user_message, result, step_log, step + 1)
+            yield {"type": "final", "result": result}
+            return
+
+        for tool_call in reply.tool_calls:
+            fn_name = tool_call.function.name
+            args = json.loads(tool_call.function.arguments)
+
+            if fn_name == "submit_verdict":
+                try:
+                    verdict = JobFitVerdict(**args)
+                except ValidationError as e:
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": f"Invalid format: {e}. Retry."})
+                    continue
+
+                yield {"type": "step", "label": "🤔 Assessing your fit..."}
+                last_verdict = verdict
+                approved, critique = critic_check(verdict, resume)
+                step_log.append({"event": "verdict_submitted", "verdict": verdict.model_dump(), "critic_result": critique, "approved": approved})
+
+                if approved:
+                    result = {"status": "approved", "verdict": verdict.model_dump()}
+                    _save_run(user_message, result, step_log, step + 1)
+                    yield {"type": "final", "result": result}
+                    return
+                else:
+                    yield {"type": "step", "label": "🧐 Refining the assessment..."}
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": f"Critic rejected: {critique}. Revise."})
+            else:
+                label = "🔍 Searching for jobs..." if fn_name == "search_jobs" else "📋 Getting job details..."
+                yield {"type": "step", "label": label}
+                fn = AVAILABLE_FUNCTIONS[fn_name]
+                result_data = fn(**args)
+                step_log.append({"event": "tool_call", "tool": fn_name, "args": args, "result": result_data})
+                messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(result_data)})
+
+    result = {"status": "low_confidence", "verdict": last_verdict.model_dump()} if last_verdict else {"status": "failed", "verdict": None}
+    _save_run(user_message, result, step_log, max_iterations)
+    yield {"type": "final", "result": result}
 
 def _save_run(user_message: str, result: dict, step_log: list, iterations_used: int):
     """Persist this run to the database — this is the actual DB/memory skill this project targets."""
