@@ -9,6 +9,9 @@ const STATUS_CONFIG = {
   invalid_input: { label: '⚠️ Invalid Input', className: 'badge-low' },
 };
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
+
 function FitGauge({ score }) {
   const angle = (score / 100) * 360;
   return (
@@ -36,7 +39,7 @@ function App() {
     setLiveStep('Starting...');
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/analyze-stream', {
+        const response = await fetch(`${API_URL}/analyze-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, resume })
