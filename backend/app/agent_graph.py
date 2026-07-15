@@ -143,7 +143,6 @@ Use tools to search jobs, get details, then call submit_verdict."""
     return result
 
 def run_agent_langgraph_stream(user_message: str, resume: str):
-    """Streams live progress by watching the graph execute node-by-node."""
     if not user_message or len(user_message.strip()) < 5:
         yield {"type": "final", "result": {"status": "invalid_input", "message": "Please enter a real request."}}
         return
@@ -166,30 +165,34 @@ Use tools to search jobs, get details, then call submit_verdict."""
         "final_result": None
     }
 
-    final_state = None
+    final_state = initial_state
     seen_steps = 0
+    last_seen_message_count = 0
 
-    for chunk in compiled_graph.stream(initial_state):
-        node_name = list(chunk.keys())[0]
-        node_output = chunk[node_name]
+    for state in compiled_graph.stream(initial_state, stream_mode="values"):
+        final_state = state  # always the full, accumulated state
 
-        if node_name == "agent":
-            yield {"type": "step", "label": "🤔 Deciding next step..."}
-        elif node_name == "tools":
-            new_logs = node_output.get("step_log", [])
-            for log in new_logs[seen_steps:]:
-                if log["event"] == "tool_call":
-                    label = "🔍 Searching for jobs..." if log["tool"] == "search_jobs" else "📋 Getting job details..."
-                elif log["event"] == "verdict_submitted":
-                    label = "✅ Verdict approved!" if log["approved"] else "🧐 Refining the assessment..."
-                else:
-                    label = "⚙️ Processing..."
-                yield {"type": "step", "label": label}
-            seen_steps = len(new_logs)
+        # Detect a new agent turn (a new message appended) to emit "Deciding next step"
+        messages = state.get("messages", [])
+        if len(messages) > last_seen_message_count:
+            last_msg = messages[-1]
+            if getattr(last_msg, "tool_calls", None) is not None or (
+                isinstance(last_msg, dict) and last_msg.get("role") == "assistant"
+            ):
+                yield {"type": "step", "label": "🤔 Deciding next step..."}
+            last_seen_message_count = len(messages)
 
-        final_state = chunk[node_name]
+        new_logs = state.get("step_log", [])
+        for log in new_logs[seen_steps:]:
+            if log["event"] == "tool_call":
+                label = "🔍 Searching for jobs..." if log["tool"] == "search_jobs" else "📋 Getting job details..."
+            elif log["event"] == "verdict_submitted":
+                label = "✅ Verdict approved!" if log["approved"] else "🧐 Refining the assessment..."
+            else:
+                label = "⚙️ Processing..."
+            yield {"type": "step", "label": label}
+        seen_steps = len(new_logs)
 
-    # Reconstruct final result from the last known state
     step_log = final_state.get("step_log", [])
     last_verdict = final_state.get("last_verdict")
     iterations = final_state.get("iterations", 0)
