@@ -127,7 +127,18 @@ Use tools to search jobs, get details, then call submit_verdict."""
         "final_result": None
     }
 
-    final_state = compiled_graph.invoke(initial_state)
+    try:
+        final_state = compiled_graph.invoke(initial_state)
+    except RuntimeError as e:
+        if str(e) == "RATE_LIMIT":
+            result = {
+                "status": "error",
+                "message": "The AI service is temporarily rate-limited. Please try again in a minute."
+            }
+            _save_run(user_message, result, [], 0)
+            return result
+        raise
+
     step_log = final_state["step_log"]
     last_verdict = final_state["last_verdict"]
     iterations = final_state["iterations"]
@@ -169,40 +180,63 @@ Use tools to search jobs, get details, then call submit_verdict."""
     seen_steps = 0
     last_seen_message_count = 0
 
-    for state in compiled_graph.stream(initial_state, stream_mode="values"):
-        final_state = state  # always the full, accumulated state
+    try:
+        for state in compiled_graph.stream(initial_state, stream_mode="values"):
+            final_state = state  # always the full, accumulated state
 
-        # Detect a new agent turn (a new message appended) to emit "Deciding next step"
-        messages = state.get("messages", [])
-        if len(messages) > last_seen_message_count:
-            last_msg = messages[-1]
-            if getattr(last_msg, "tool_calls", None) is not None or (
-                isinstance(last_msg, dict) and last_msg.get("role") == "assistant"
-            ):
-                yield {"type": "step", "label": "🤔 Deciding next step..."}
-            last_seen_message_count = len(messages)
+            messages = state.get("messages", [])
+            if len(messages) > last_seen_message_count:
+                last_msg = messages[-1]
+                if getattr(last_msg, "tool_calls", None) is not None or (
+                    isinstance(last_msg, dict) and last_msg.get("role") == "assistant"
+                ):
+                    yield {"type": "step", "label": "🤔 Deciding next step..."}
+                last_seen_message_count = len(messages)
 
-        new_logs = state.get("step_log", [])
-        for log in new_logs[seen_steps:]:
-            if log["event"] == "tool_call":
-                label = "🔍 Searching for jobs..." if log["tool"] == "search_jobs" else "📋 Getting job details..."
-            elif log["event"] == "verdict_submitted":
-                label = "✅ Verdict approved!" if log["approved"] else "🧐 Refining the assessment..."
-            else:
-                label = "⚙️ Processing..."
-            yield {"type": "step", "label": label}
-        seen_steps = len(new_logs)
+            new_logs = state.get("step_log", [])
+            for log in new_logs[seen_steps:]:
+                if log["event"] == "tool_call":
+                    label = "🔍 Searching for jobs..." if log["tool"] == "search_jobs" else "📋 Getting job details..."
+                elif log["event"] == "verdict_submitted":
+                    label = "✅ Verdict approved!" if log["approved"] else "🧐 Refining the assessment..."
+                else:
+                    label = "⚙️ Processing..."
+                yield {"type": "step", "label": label}
+            seen_steps = len(new_logs)
+    except RuntimeError as e:
+        if str(e) == "RATE_LIMIT":
+            result = {
+                "status": "error",
+                "message": "The AI service is temporarily rate-limited. Please try again in a minute."
+            }
+            _save_run(user_message, result, [], 0)
+            yield {"type": "final", "result": result}
+            return
+        raise
 
     step_log = final_state.get("step_log", [])
     last_verdict = final_state.get("last_verdict")
     iterations = final_state.get("iterations", 0)
+    messages = final_state.get("messages", [])
 
     if step_log and step_log[-1].get("event") == "verdict_submitted" and step_log[-1].get("approved"):
         result = {"status": "approved", "verdict": last_verdict}
     elif last_verdict:
         result = {"status": "low_confidence", "verdict": last_verdict}
+    elif messages and not getattr(messages[-1], "tool_calls", None) and getattr(messages[-1], "content", None):
+        result = {"status": "no_action", "message": messages[-1].content}
+    elif iterations >= 6:
+        result = {
+            "status": "failed",
+            "verdict": None,
+            "message": "Reached the maximum number of steps without producing a fit assessment. Try rephrasing your request or narrowing the job search."
+        }
     else:
-        result = {"status": "failed", "verdict": None}
+        result = {
+            "status": "failed",
+            "verdict": None,
+            "message": "Something unexpected happened and no result could be produced."
+        }
 
     _save_run(user_message, result, step_log, iterations)
     yield {"type": "final", "result": result}

@@ -2,7 +2,7 @@ import os
 import json
 import time
 from dotenv import load_dotenv
-from groq import Groq, BadRequestError
+from groq import Groq, BadRequestError , RateLimitError
 from pydantic import ValidationError
 from app.tools import search_jobs, get_job_details
 from app.schemas import JobFitVerdict
@@ -78,6 +78,9 @@ def call_llm_with_retry(messages, max_retries=3):
                 time.sleep(wait_time)
                 continue
             raise
+        except RateLimitError as e:
+            print(f"Groq rate limit hit: {e}")
+            raise RuntimeError("RATE_LIMIT") from e
 
 def critic_check(verdict: JobFitVerdict, resume: str) -> tuple[bool, str]:
     """A second, independent LLM call that judges the verdict against a concrete rubric."""
