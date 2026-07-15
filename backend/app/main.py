@@ -11,7 +11,7 @@ from app.agent_graph import run_agent_langgraph, run_agent_langgraph_stream
 app = FastAPI(title="AI Job-Fit Analyzer")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # your Vite dev server
+    allow_origins=["http://localhost:5173", "https://ai-jobfit-agent.vercel.app/"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
