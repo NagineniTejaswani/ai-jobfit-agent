@@ -102,6 +102,19 @@ def build_graph():
 
 compiled_graph = build_graph()
 
+# ============================================================
+# ACTIVE IMPLEMENTATION — LangGraph-based agent
+# ============================================================
+# This is the current, live implementation used by /analyze and
+# /analyze-stream (see app/main.py). It replaces the hand-built
+# loop originally written in app/graph.py (run_agent /
+# run_agent_stream), which is kept there for reference only.
+#
+# Built using LangGraph's StateGraph: an `agent` node (decides
+# what to do next) and a `tools` node (executes tool calls / the
+# Critic check), connected by conditional edges that route based
+# on tool-call presence, Critic approval, and iteration limits.
+# ============================================================
 
 def run_agent_langgraph(user_message: str, resume: str):
     if not user_message or len(user_message.strip()) < 5:

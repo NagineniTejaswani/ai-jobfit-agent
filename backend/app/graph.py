@@ -111,6 +111,24 @@ def critic_check(verdict: JobFitVerdict, resume: str) -> tuple[bool, str]:
     approved = text.strip().upper().startswith("APPROVE")
     return approved, text
 
+# ============================================================
+# LEGACY — HAND-BUILT VERSION (pre-LangGraph)
+# ============================================================
+# This was the original tool-calling loop, written by hand with
+# raw Groq SDK calls (no orchestration framework) to understand
+# the underlying mechanics of agentic tool-calling before adopting
+# a framework.
+#
+# STATUS: No longer used by the live app. Superseded by the
+# LangGraph implementation in app/agent_graph.py (see
+# run_agent_langgraph / run_agent_langgraph_stream), which is what
+# /analyze and /analyze-stream actually call today.
+#
+# Kept intentionally as a reference — demonstrates the mechanics
+# this project was originally built to learn, before migrating to
+# proper graph-based orchestration.
+# ============================================================
+
 def run_agent(user_message: str, resume: str, max_iterations: int = 6):
     step_log = []  # ← NEW: collects everything that happens this run
 
