@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from pydantic import BaseModel, field_validator
-from app.graph import run_agent, run_agent_stream
 from app.db import init_db, get_session, AgentRun
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -29,14 +28,18 @@ class AnalyzeRequest(BaseModel):
     def message_not_empty(cls, v):
         if not v or len(v.strip()) < 5:
             raise ValueError("Message must be at least 5 characters")
-        return v
+        if len(v) > 200:
+            raise ValueError("Message must be 200 characters or fewer")
+        return v.strip()
 
     @field_validator("resume")
     @classmethod
     def resume_not_empty(cls, v):
         if not v or len(v.strip()) < 50:
             raise ValueError("Resume seems too short — please paste your full resume text")
-        return v
+        if len(v) > 6000:
+            raise ValueError("Resume is too long (max 6,000 characters). Please trim to the most relevant sections.")
+        return v.strip()
 
 
 @app.get("/")

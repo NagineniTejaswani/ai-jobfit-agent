@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 
 class JobFitVerdict(BaseModel):
     job_title: str
@@ -8,3 +8,8 @@ class JobFitVerdict(BaseModel):
     matching_skills: List[str]
     missing_skills: List[str]
     reasoning: str
+    url: Optional[str] = None
+
+class MultiJobFitVerdict(BaseModel):
+    verdicts: List[JobFitVerdict] = Field(default_factory=list, description="List of evaluated job fit assessments, sorted by fit score descending.")
+
