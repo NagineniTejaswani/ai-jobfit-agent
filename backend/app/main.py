@@ -1,10 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel, field_validator
 from app.db import init_db, get_session, AgentRun
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import json
 from app.agent_graph import run_agent_langgraph, run_agent_langgraph_stream
+from app.pdf_utils import extract_text_from_pdf
 
 
 app = FastAPI(title="AI Job-Fit Analyzer")
@@ -46,6 +47,27 @@ class AnalyzeRequest(BaseModel):
 def health_check():
     return {"status": "ok", "message": "AI Job-Fit Analyzer is running"}
 
+
+@app.post("/extract-pdf")
+async def extract_pdf(file: UploadFile = File(...)):
+    filename = file.filename or ""
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="The uploaded PDF file is empty.")
+
+    # 5MB limit
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size exceeds the 5MB limit.")
+
+    text = extract_text_from_pdf(contents)
+    return {
+        "text": text,
+        "filename": filename,
+        "char_count": len(text),
+    }
 
 
 @app.post("/analyze")

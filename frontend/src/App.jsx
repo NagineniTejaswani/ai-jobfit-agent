@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import './App.css';
 
 const STATUS_CONFIG = {
@@ -11,7 +11,6 @@ const STATUS_CONFIG = {
 };
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
-
 
 function FitGauge({ score }) {
   const angle = (score / 100) * 360;
@@ -26,13 +25,22 @@ function FitGauge({ score }) {
 }
 
 function App() {
+  const [inputMode, setInputMode] = useState('pdf'); // 'pdf' | 'text'
   const [message, setMessage] = useState('');
-  const [resume, setResume] = useState('');
+  const [pdfText, setPdfText] = useState('');
+  const [pastedText, setPastedText] = useState('');
+  const [pdfFile, setPdfFile] = useState(null);
+  const [isExtractingPdf, setIsExtractingPdf] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [showExtractedPreview, setShowExtractedPreview] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [liveStep, setLiveStep] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [expandedJobs, setExpandedJobs] = useState({});
+
+  const fileInputRef = useRef(null);
 
   const toggleExpand = (index) => {
     setExpandedJobs(prev => ({
@@ -40,6 +48,103 @@ function App() {
       [index]: !prev[index]
     }));
   };
+
+  const handlePdfUpload = async (file) => {
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setError('Please select a valid PDF document (.pdf).');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError('PDF file exceeds 5MB limit. Please upload a smaller file.');
+      return;
+    }
+
+    setError(null);
+    setPdfFile(file);
+    setIsExtractingPdf(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(`${API_URL}/extract-pdf`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to extract text from PDF');
+      }
+
+      setPdfText(data.text);
+      setPastedText(''); // Clear any previous pasted text when PDF is uploaded
+      setShowExtractedPreview(false);
+    } catch (err) {
+      setError(err.message || 'Error reading PDF');
+      setPdfFile(null);
+      setPdfText('');
+    } finally {
+      setIsExtractingPdf(false);
+    }
+  };
+
+  const handlePastedTextChange = (e) => {
+    const text = e.target.value;
+    setPastedText(text);
+    // If user enters text in the paste box, clear any uploaded PDF
+    if (text.trim() && (pdfFile || pdfText)) {
+      setPdfFile(null);
+      setPdfText('');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handlePdfUpload(file);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      handlePdfUpload(file);
+    }
+  };
+
+  const handleRemovePdf = (e) => {
+    e.stopPropagation();
+    setPdfFile(null);
+    setPdfText('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const activeResume = inputMode === 'pdf' ? pdfText : pastedText;
 
   const handleSubmit = async () => {
     setError(null);
@@ -52,7 +157,7 @@ function App() {
       const res = await fetch(`${API_URL}/analyze-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, resume }),
+        body: JSON.stringify({ message, resume: activeResume }),
       });
 
       if (!res.ok) {
@@ -93,19 +198,23 @@ function App() {
   const MAX_MESSAGE = 200;
   const MAX_RESUME = 6000;
   const msgOver = message.length > MAX_MESSAGE;
-  const resumeOver = resume.length > MAX_RESUME;
+  const activeResumeOver = activeResume.length > MAX_RESUME;
 
-  // Detect vague resumes — no experience duration signals (years, digits+, seniority words)
-  const EXP_SIGNALS = /\b(\d+\+?\s*(year|yr|yrs|months?)|senior|lead|principal|junior|intern|manager|director|fresher|entry.?level)/i;
-  const resumeIsVague = resume.trim().length >= 50 && !EXP_SIGNALS.test(resume);
-
-  const canSubmit = message.trim().length >= 5 && resume.trim().length >= 50 && !loading && !msgOver && !resumeOver;
+  const canSubmit = message.trim().length >= 5 && activeResume.trim().length >= 50 && !loading && !isExtractingPdf && !msgOver && !activeResumeOver;
   const status = result ? (STATUS_CONFIG[result.status] || STATUS_CONFIG.no_match) : null;
 
   // All jobs returned from backend are already >= 50% (filtered server-side)
   const allJobs = result?.verdict?.verdicts || [];
   const highMatches = allJobs.filter(j => j.fit_score >= 80);
   const mediumMatches = allJobs.filter(j => j.fit_score >= 50 && j.fit_score < 80);
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
 
   return (
     <div className="app">
@@ -134,32 +243,137 @@ function App() {
 
           <div className="field">
             <div className="label-row">
-              <label>Paste your resume</label>
-              <span className={`char-count ${resumeOver ? 'char-over' : resume.length > MAX_RESUME * 0.9 ? 'char-warn' : ''}`}>
-                {resume.length}/{MAX_RESUME}
-              </span>
+              <label>Your Resume</label>
+              <div className="tab-pill-group">
+                <button
+                  type="button"
+                  className={`tab-pill ${inputMode === 'pdf' ? 'active' : ''}`}
+                  onClick={() => setInputMode('pdf')}
+                >
+                  📄 Upload PDF
+                </button>
+                <button
+                  type="button"
+                  className={`tab-pill ${inputMode === 'text' ? 'active' : ''}`}
+                  onClick={() => setInputMode('text')}
+                >
+                  ✏️ Paste Text
+                </button>
+              </div>
             </div>
-            <textarea
-              rows={11}
-              value={resume}
-              maxLength={MAX_RESUME}
-              onChange={(e) => setResume(e.target.value)}
-              placeholder="Paste your full resume text here..."
-              className={resumeOver ? 'input-over' : ''}
-            />
-            {resumeOver && (
-              <p className="field-error">Resume exceeds 6,000 characters. Please trim to the most relevant sections.</p>
-            )}
-            {!resumeOver && resumeIsVague && (
-              <div className="resume-tip">
-                <span className="resume-tip-icon">✏️</span>
-                <span>For more accurate scoring, include experience details — e.g. <em>&quot;3 years in sales&quot;</em> or <em>&quot;2+ yrs as a designer&quot;</em>. Without this, the agent will assume entry-level.</span>
+
+            {inputMode === 'pdf' ? (
+              <div className="pdf-upload-container">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept=".pdf,application/pdf"
+                  className="file-input-hidden"
+                />
+
+                {!pdfFile && (
+                  <div
+                    className={`dropzone ${isDragging ? 'dragging' : ''} ${isExtractingPdf ? 'extracting' : ''}`}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {isExtractingPdf ? (
+                      <div className="dropzone-loading">
+                        <div className="spinner"></div>
+                        <p className="dropzone-text">Extracting resume text from PDF...</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="dropzone-icon">📥</div>
+                        <p className="dropzone-main-text">
+                          <strong>Click to upload</strong> or drag and drop your resume PDF
+                        </p>
+                        <p className="dropzone-sub-text">PDF format only • Max 5MB</p>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {pdfFile && (
+                  <div className="uploaded-file-card">
+                    <div className="file-info-main">
+                      <div className="file-icon">📄</div>
+                      <div className="file-details">
+                        <span className="file-name" title={pdfFile.name}>{pdfFile.name}</span>
+                        <span className="file-meta">
+                          {formatFileSize(pdfFile.size)} • {pdfText.length.toLocaleString()} characters extracted
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="file-remove-btn"
+                        onClick={handleRemovePdf}
+                        title="Remove file"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {pdfText && (
+                      <div className="extracted-preview-wrapper">
+                        <div
+                          className="preview-toggle-header"
+                          onClick={() => setShowExtractedPreview(!showExtractedPreview)}
+                        >
+                          <span>{showExtractedPreview ? 'Hide Extracted Resume' : 'View Extracted Resume'}</span>
+                          <span>{showExtractedPreview ? '▲' : '▼'}</span>
+                        </div>
+
+                        {showExtractedPreview && (
+                          <div className="extracted-preview-box">
+                            <textarea
+                              rows={8}
+                              value={pdfText}
+                              maxLength={MAX_RESUME}
+                              onChange={(e) => setPdfText(e.target.value)}
+                              placeholder="Extracted resume text..."
+                              className="extracted-textarea"
+                            />
+                            <span className="preview-tip">You can edit the extracted text directly if needed.</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {inputMode === 'pdf' && pdfText.length > MAX_RESUME && (
+                  <p className="field-error">Extracted resume exceeds 6,000 characters. Please trim or upload a shorter resume.</p>
+                )}
+              </div>
+            ) : (
+              <div className="text-resume-container">
+                <div className="label-row sub-label-row">
+                  <span className="sub-label">Full resume text</span>
+                  <span className={`char-count ${pastedText.length > MAX_RESUME ? 'char-over' : pastedText.length > MAX_RESUME * 0.9 ? 'char-warn' : ''}`}>
+                    {pastedText.length}/{MAX_RESUME}
+                  </span>
+                </div>
+                <textarea
+                  rows={11}
+                  value={pastedText}
+                  maxLength={MAX_RESUME}
+                  onChange={handlePastedTextChange}
+                  placeholder="Paste your full resume text here..."
+                  className={pastedText.length > MAX_RESUME ? 'input-over' : ''}
+                />
+                {pastedText.length > MAX_RESUME && (
+                  <p className="field-error">Resume exceeds 6,000 characters. Please trim to the most relevant sections.</p>
+                )}
               </div>
             )}
           </div>
 
           <button onClick={handleSubmit} disabled={!canSubmit}>
-            {loading ? 'Analyzing…' : 'Analyze Fit'}
+            {loading ? 'Analyzing…' : isExtractingPdf ? 'Extracting PDF…' : 'Analyze Fit'}
           </button>
         </div>
 
@@ -167,7 +381,7 @@ function App() {
         <div className="right-pane">
           {!loading && !result && !error && (
             <div className="placeholder-box">
-              <p>Fill in the form and click "Analyze Fit" — your agent's live progress and verdict will appear here.</p>
+              <p>Upload your resume PDF or paste text, enter your role target, and click "Analyze Fit" — your agent's live progress and verdict will appear here.</p>
             </div>
           )}
 
