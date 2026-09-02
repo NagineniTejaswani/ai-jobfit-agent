@@ -1,0 +1,47 @@
+[
+  {
+    "test_id": "eval_01_strong_backend_match",
+    "description": "Python Backend Engineer applying for a FastAPI/SQL backend position",
+    "candidate_profile": "Software Engineer with 2 years of experience in Python, FastAPI, PostgreSQL, SQLAlchemy, Docker, and REST API development. Built scalable microservices and integrated third-party APIs.",
+    "job_title": "Senior Python Backend Developer",
+    "company": "TechCorp Solutions",
+    "job_description": "We are seeking a Python Backend Developer skilled in FastAPI or Flask, relational databases (PostgreSQL/SQLAlchemy), Docker containerization, and RESTful API design. Knowledge of cloud platforms is a plus.",
+    "expected_verdict": {
+      "min_fit_score": 75,
+      "max_fit_score": 98,
+      "expected_matching_skills": ["Python", "FastAPI", "PostgreSQL", "SQLAlchemy", "Docker", "REST APIs"],
+      "expected_missing_skills": ["Cloud platforms (AWS/GCP/Azure)"]
+    },
+    "rubric_target_score": 5
+  },
+  {
+    "test_id": "eval_02_complete_mismatch",
+    "description": "Frontend UI Developer applying for Machine Learning / NLP Researcher position",
+    "candidate_profile": "Frontend Web Developer specializing in React.js, Tailwind CSS, HTML5, CSS3, JavaScript (ES6+), and Figma-to-code conversions.",
+    "job_title": "Lead Machine Learning Researcher",
+    "company": "AI Dynamics Lab",
+    "job_description": "Seeking an ML Researcher with deep expertise in PyTorch, Transformer architectures, Large Language Model fine-tuning, Reinforcement Learning (RLHF), and CUDA kernel optimization.",
+    "expected_verdict": {
+      "min_fit_score": 0,
+      "max_fit_score": 25,
+      "expected_matching_skills": [],
+      "expected_missing_skills": ["PyTorch", "Transformers", "LLM fine-tuning", "Reinforcement Learning", "CUDA"]
+    },
+    "rubric_target_score": 5
+  },
+  {
+    "test_id": "eval_03_partial_match_upskill_needed",
+    "description": "Junior Python Developer applying for an AI / GenAI Engineer role",
+    "candidate_profile": "Junior Python developer with 1 year experience writing Python scripts, basic web scraping with BeautifulSoup, and basic SQLite queries.",
+    "job_title": "Generative AI Engineer",
+    "company": "NextGen AI",
+    "job_description": "Looking for an AI Engineer proficient in Python, LangGraph/LangChain, RAG pipelines, Vector Databases (ChromaDB), and Prompt Engineering with OpenAI/Groq APIs.",
+    "expected_verdict": {
+      "min_fit_score": 30,
+      "max_fit_score": 60,
+      "expected_matching_skills": ["Python", "SQLite / Databases"],
+      "expected_missing_skills": ["LangGraph", "LangChain", "RAG Architecture", "Vector Databases", "Prompt Engineering"]
+    },
+    "rubric_target_score": 4
+  }
+]
